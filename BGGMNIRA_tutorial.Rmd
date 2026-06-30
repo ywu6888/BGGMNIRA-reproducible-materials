@@ -1,0 +1,473 @@
+---
+title: "Bridge GGMNIRA Empirical Application"
+author: "Yiming Wu"
+date: "2026-06-30"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 3
+    number_sections: true
+    code_folding: show
+    theme: readable
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = FALSE,
+  message = FALSE,
+  fig.align = "center",
+  out.width = "85%"
+)
+```
+
+# Overview
+
+This document provides a step by step reproducible example of applying the Bridge Gaussian Graphical Model NodeIdentifyR Algorithm (BGGMNIRA) to a depression--anxiety comorbidity data set.
+
+The goal of this example is to show how researchers can use BGGMNIRA to evaluate projected importance in a bridge network at three levels:
+
+1. node-level GGMNIRA from the joint-network perspective;
+2. node-level GGMNIRA from the construct-specific perspective;
+3. construct-level GGMNIRA from the joint-network perspective.
+
+Specifically, we will:
+
+1. load the `GGMNIRA` R package and the built-in `DAdata` data set;
+2. estimate a regularized Gaussian graphical model for depression and anxiety symptoms;
+3. apply node-level GGMNIRA from the joint-network perspective;
+4. apply node-level GGMNIRA from the construct-specific perspective;
+5. apply construct-level GGMNIRA from the joint-network perspective;
+6. visualize the KL divergence results for all three levels;
+7. evaluate the stability of the KL divergence estimates using case-dropping bootstrap;
+8. conduct bootstrap difference tests for pairwise differences in KL divergence.
+
+# Installation
+
+The `GGMNIRA` package can be installed from GitHub using the following code.
+
+```{r installation, eval=FALSE}
+install.packages("remotes")
+remotes::install_github("ywu6888/GGMNIRA")
+```
+
+# Load required packages
+
+We first load the packages required for the analysis.
+
+```{r load-packages}
+library(GGMNIRA)
+```
+
+# Load the example data
+
+The example data used here are included in the `GGMNIRA` package. Therefore, the data can be loaded directly using the `data()` function.
+
+```{r load-data}
+data("DAdata", package = "GGMNIRA")
+```
+
+We can inspect the dimension and the first several rows of the data.
+
+```{r inspect-data}
+dim(DAdata)
+head(DAdata)
+```
+
+The data set contains 16 symptoms from two constructs: depressive symptoms and anxiety symptoms. Depressive symptoms were assessed using the PHQ-9, which contains 9 items, and anxiety symptoms were assessed using the GAD-7, which contains 7 items.
+
+For later analyses, we define the construct membership of each node as follows.
+
+```{r define-construct-type}
+DA_type <- c(rep("Depression", 9), rep("Anxiety", 7))
+```
+
+# Estimate the Gaussian graphical model
+
+Before applying BGGMNIRA, we first estimate a regularized Gaussian graphical model for the depression--anxiety symptom network.
+
+The network is estimated using the `estimateNetwork()` function from the `bootnet` package. We use the `EBICglasso` method and set `corMethod = "cor_auto"`, so that the appropriate correlation input is selected automatically. For ordinal data, this typically leads to the use of polychoric correlations.
+
+```{r estimate-network}
+DAnet <- bootnet::estimateNetwork(
+  DAdata,
+  default = "EBICglasso",
+  corMethod = "cor_auto"
+)
+```
+
+# Visualize the estimated bridge network
+
+We next plot the estimated depression--anxiety bridge network.
+
+```{r plot-network, fig.width=8, fig.height=6}
+Plot_network <- plot(
+  DAnet,
+  layout = "spring",
+  groups = DA_type,
+  color = c("#1A6CA8", "#D4762A"),
+  legend = TRUE
+)
+```
+
+In this network, nodes represent depressive and anxiety symptoms, and edges represent regularized partial correlation coefficients between symptoms, reflecting the conditional dependence between two symptoms after controlling for all others.
+
+# Apply BGGMNIRA
+
+BGGMNIRA extends GGMNIRA from a single construct network to a bridge network. The key additional argument is `result_type`, which specifies the level of analysis.
+
+The three available options are:
+
+1. `"node_joint"`: node-level GGMNIRA from the joint-network perspective;
+2. `"cross_marginal"`: node-level GGMNIRA from the construct-specific perspective;
+3. `"construct_joint"`: construct-level GGMNIRA from the joint-network perspective.
+
+The following sections run these three analyses separately.
+
+# Node-level GGMNIRA from the joint-network perspective
+
+The first analysis sequentially manipulates each node across all constructs in the joint network. It then computes the KL divergence between the joint distribution of the complete manipulated network and the baseline distribution.
+
+This analysis answers the following question: for the entire depression--anxiety comorbidity network, which symptom is projected to produce the greatest overall change after being manipulated?
+
+```{r run-node-joint, message=TRUE}
+DA_res_node_joint <- GGM_NIRA(
+  net = DAnet,
+  type = DA_type,
+  result_type = "node_joint"
+)
+```
+
+The `GGM_NIRA()` function outputs several pieces of messages, including the spectral radius of the regression coefficient matrix, the KL divergence threshold, the automatically identified manipulation intensity for practical application, and the first node that reaches the threshold.
+
+# Extract node-joint results
+
+We can use the `GGMNIRA_result()` function to extract the main results in a compact table.
+
+```{r extract-node-joint-results}
+node_joint_result <- GGMNIRA_result(
+  DA_res_node_joint,
+  result_type = "node_joint"
+)
+
+node_joint_result
+```
+
+Results show that, manipulating the symptom "worrying too much about different things" (GAD3) was projected to have the largest impact on the entire comorbidity network.
+
+# Visualize node-joint results
+
+To visualize the projected manipulation effects, we use the `GGMNIRA_plot()` function.
+
+The `manipulation_I` argument should be set according to the manipulation intensity reported by the `GGM_NIRA()` output. Based on the output messages above, the minimum manipulation coefficient for this analysis was 2; therefore, we set `manipulation_I = 2` here. If your output reports a different value, replace this value accordingly.
+
+```{r plot-node-joint-results, fig.width=7, fig.height=5}
+node_joint_plot <- GGMNIRA_plot(
+  node_joint_result,
+  manipulation_I = 2
+)
+
+print(node_joint_plot)
+```
+
+In this plot, the x-axis represents the manipulated symptoms, and the y-axis represents the KL divergence between the post-manipulation distribution and the baseline distribution of the complete joint network.
+
+# Node-level GGMNIRA from the construct-specific perspective
+
+The second analysis focuses on directional cross-construct effects. Conceptually, researchers need to define a source construct and a target construct: nodes in the source construct are sequentially manipulated, and the analysis evaluates the marginal distributional change in the target construct.
+
+In the implementation, however, the source and target constructs do not need to be specified in `GGM_NIRA()`. When `result_type = "cross_marginal"` is used, `GGM_NIRA()` computes all directional cross-construct paths in the bridge network. For example, in the present depression-anxiety network, both the depression-to-anxiety path and the anxiety-to-depression path are computed. A specific directional result is then extracted in `GGMNIRA_result()` by specifying the source and target constructs.
+
+```{r run-cross-marginal, message=TRUE}
+DA_res_cross_marginal <- GGM_NIRA(
+  net = DAnet,
+  type = DA_type,
+  result_type = "cross_marginal"
+)
+```
+One important statistical detail should be noted. When computing the KL divergence for the target construct, BGGMNIRA uses the marginal precision matrix of the target construct rather than directly extracting the corresponding target-construct submatrix from the precision matrix of the complete joint network. This ensures that the resulting KL divergence reflects the distributional change of the target construct itself.
+
+# Extract cross-marginal results
+
+In this example, we extract the depression-to-anxiety result by specifying depression as the source construct and anxiety as the target construct in `GGMNIRA_result()`. This analysis answers the following question: which depressive symptom is projected to produce the largest change in anxiety after being manipulated?
+
+```{r extract-cross-marginal-results}
+cross_marginal_result <- GGMNIRA_result(
+  DA_res_cross_marginal,
+  result_type = "cross_marginal",
+  source_construct = "Depression",
+  target_construct = "Anxiety"
+)
+
+cross_marginal_result
+```
+
+Results show that, among all depressive symptoms, manipulating the symptom "feeling tired or having little energy" (PHQ4) was projected to have the largest impact on anxiety disorder.
+
+
+# Visualize cross-marginal results
+
+The `manipulation_I` argument should again be set according to the manipulation intensity reported by the `GGM_NIRA()` output. Based on the output messages above, the minimum manipulation coefficient for this analysis was 2; therefore, we set `manipulation_I = 2` here. If your output reports a different value, replace this value accordingly.
+
+```{r plot-cross-marginal-results, fig.width=7, fig.height=5}
+cross_marginal_plot <- GGMNIRA_plot(
+  cross_marginal_result,
+  manipulation_I = 2
+)
+
+print(cross_marginal_plot)
+```
+
+In this plot, the x-axis represents the manipulated depressive symptoms, and the y-axis represents the KL divergence between the post-manipulation marginal distribution and the baseline marginal distribution of anxiety.
+
+# Construct-level GGMNIRA from the joint-network perspective
+
+The third analysis implements simulated manipulation at the construct level. Instead of manipulating one node at a time, the algorithm applies manipulations of equal direction simultaneously to all nodes belonging to the same construct. It then iterates over each construct and computes the KL divergence between the joint distribution of the complete manipulated network and the baseline distribution.
+
+This analysis answers the following question: which construct is expected to produce the greatest overall change in the complete bridge network after being manipulated?
+
+Because the number of nodes may differ across constructs, BGGMNIRA imposes a unit-norm constraint on the manipulation vector. This ensures that the effective manipulation intensity is comparable across constructs.
+
+```{r run-construct-joint, message=TRUE}
+DA_res_construct_joint <- GGM_NIRA(
+  net = DAnet,
+  type = DA_type,
+  result_type = "construct_joint"
+)
+```
+
+The output messages above show that the final manipulation intensity applied to each construct is 1. Because anxiety consists of 7 symptoms and depression consists of 9 symptoms, the construct-level manipulation is equally distributed across the symptoms within each construct. As a result, each anxiety symptom receives a manipulation intensity of (1 / \sqrt{7} \approx 0.378), and each depressive symptom receives a manipulation intensity of (1 / \sqrt{9} = 0.333).
+
+# Extract construct-joint results
+
+```{r extract-construct-joint-results}
+construct_joint_result <- GGMNIRA_result(
+  DA_res_construct_joint,
+  result_type = "construct_joint"
+)
+
+construct_joint_result
+```
+
+Results show that, at the construct level, anxiety disorder showed greater projected importance than depressive disorder in the depression-anxiety comorbidity network. That is, intervening on anxiety is projected to produce a greater intervention effect.
+
+# Visualize construct-joint results
+
+The `manipulation_I` argument should be set according to the manipulation intensity reported by the `GGM_NIRA()` output. Based on the output messages above, the minimum manipulation coefficient for this analysis was 1; therefore, we set `manipulation_I = 1` here. If your output reports a different value, replace this value accordingly.
+
+```{r plot-construct-joint-results, fig.width=7, fig.height=5}
+construct_joint_plot <- GGMNIRA_plot(
+  construct_joint_result,
+  manipulation_I = 1
+)
+
+print(construct_joint_plot)
+```
+
+In this plot, the x-axis represents the manipulated constructs, and the y-axis represents the KL divergence between the post-manipulation distribution and the baseline distribution of the complete joint network.
+
+# Stability assessment via case-dropping bootstrap
+
+After computing the KL divergence values, it is important to evaluate whether these estimates are stable.
+
+BGGMNIRA provides the `bootnet_KL()` function to conduct a case-dropping bootstrap analysis. This procedure repeatedly estimates KL divergence values after dropping different proportions of cases, and then evaluates how strongly the bootstrap KL divergence vector correlates with the original full-sample vector.
+
+The following code performs the case-dropping bootstrap with 1000 bootstrap replications for each of the three BGGMNIRA analyses. These chunks may take a long time to run, especially because the data set is large.
+
+# Stability: node-level joint-network analysis
+
+```{r case-dropping-node-joint, message=FALSE, warning=FALSE, cache=TRUE, results='hide'}
+boot_result_node_joint <- bootnet_KL(
+  data = DAdata,
+  type = DA_type,
+  result_type = "node_joint",
+  nBoots = 1000,
+  nCores = 8,
+  seed = 2026
+)
+```
+
+```{r compute-cs-node-joint}
+CS_node_joint <- corStability_KL(
+  boot_result = boot_result_node_joint
+)
+```
+
+```{r plot-cs-node-joint, fig.width=7, fig.height=5}
+plot_KL(
+  CS_result = CS_node_joint,
+  boot_result = boot_result_node_joint
+)
+```
+
+# Stability: cross-marginal analysis
+
+```{r case-dropping-cross-marginal, message=FALSE, warning=FALSE, cache=TRUE, results='hide'}
+boot_result_cross_marginal <- bootnet_KL(
+  data = DAdata,
+  type = DA_type,
+  result_type = "cross_marginal",
+  source_construct = "Depression",
+  target_construct = "Anxiety",
+  nBoots = 1000,
+  nCores = 8,
+  seed = 2026
+)
+```
+
+```{r compute-cs-cross-marginal}
+CS_cross_marginal <- corStability_KL(
+  boot_result = boot_result_cross_marginal
+)
+```
+
+```{r plot-cs-cross-marginal, fig.width=7, fig.height=5}
+plot_KL(
+  CS_result = CS_cross_marginal,
+  boot_result = boot_result_cross_marginal
+)
+```
+
+# Stability: construct-level joint-network analysis
+
+```{r case-dropping-construct-joint, message=FALSE, warning=FALSE, cache=TRUE, results='hide'}
+boot_result_construct_joint <- bootnet_KL(
+  data = DAdata,
+  type = DA_type,
+  result_type = "construct_joint",
+  nBoots = 1000,
+  nCores = 8,
+  seed = 2026
+)
+```
+
+```{r compute-cs-construct-joint}
+CS_construct_joint <- corStability_KL(
+  boot_result = boot_result_construct_joint
+)
+```
+
+```{r plot-cs-construct-joint, fig.width=7, fig.height=5}
+plot_KL(
+  CS_result = CS_construct_joint,
+  boot_result = boot_result_construct_joint
+)
+```
+
+The CS coefficient quantifies the maximum proportion of cases that can be dropped while retaining a sufficiently high correlation with the original KL divergence vector. If the CS coefficient is sufficiently large, the KL divergence estimates can be interpreted as having an acceptable degree of stability.
+
+In this example, the CS coefficients for KL divergence are 0.75 across all three levels of BGGMNIRA, exceeding the preliminary threshold of 0.40 identified in our simulation study. This indicates that the KL divergence estimates show acceptable stability across the three analytical levels.
+
+# Bootstrap difference test
+
+In addition to evaluating stability, we may also want to test whether the KL divergence values of different nodes or constructs are statistically distinguishable.
+
+For this purpose, BGGMNIRA provides the `bootnet_KL_nonparametric()` function for nonparametric bootstrap sampling and the `differenceTest_KL()` function for constructing confidence intervals for pairwise KL divergence differences.
+
+Unlike `bootnet_KL()`, the `bootnet_KL_nonparametric()` function requires users to manually specify the manipulation intensity through the `manipulation_I` argument. This is because the difference test plot displays the actual KL divergence values. Therefore, the manipulation intensity should be set according to the manipulation intensity reported by `GGM_NIRA()` in the main analysis.
+
+# Difference test: node-level joint-network analysis
+
+```{r nonparametric-bootstrap-node-joint, message=FALSE, warning=FALSE, cache=TRUE, results='hide'}
+boot_np_node_joint <- bootnet_KL_nonparametric(
+  data = DAdata,
+  net = DAnet,
+  type = DA_type,
+  result_type = "node_joint",
+  nBoots = 1000,
+  manipulation_I = 2,
+  seed = 2026
+)
+```
+
+```{r difference-test-node-joint}
+diff_node_joint <- differenceTest_KL(
+  boot_np_node_joint
+)
+```
+
+```{r plot-difference-test-node-joint, fig.width=8, fig.height=6}
+plot_KL_difference(
+  diff_result = diff_node_joint,
+  sample_KL = boot_np_node_joint$sample_KL,
+  order = "sample"
+)
+```
+
+# Difference test: cross-marginal analysis
+
+```{r nonparametric-bootstrap-cross-marginal, message=FALSE, warning=FALSE, cache=TRUE, results='hide'}
+boot_np_cross_marginal <- bootnet_KL_nonparametric(
+  data = DAdata,
+  net = DAnet,
+  type = DA_type,
+  result_type = "cross_marginal",
+  source_construct = "Depression",
+  target_construct = "Anxiety",
+  nBoots = 1000,
+  manipulation_I = 2,
+  seed = 2026
+)
+```
+
+```{r difference-test-cross-marginal}
+diff_cross_marginal <- differenceTest_KL(
+  boot_np_cross_marginal
+)
+```
+
+```{r plot-difference-test-cross-marginal, fig.width=8, fig.height=6}
+plot_KL_difference(
+  diff_result = diff_cross_marginal,
+  sample_KL = boot_np_cross_marginal$sample_KL,
+  order = "sample"
+)
+```
+
+# Difference test: construct-level joint-network analysis
+
+```{r nonparametric-bootstrap-construct-joint, message=FALSE, warning=FALSE, cache=TRUE, results='hide'}
+boot_np_construct_joint <- bootnet_KL_nonparametric(
+  data = DAdata,
+  net = DAnet,
+  type = DA_type,
+  result_type = "construct_joint",
+  nBoots = 1000,
+  manipulation_I = 1,
+  seed = 2026
+)
+```
+
+```{r difference-test-construct-joint}
+diff_construct_joint <- differenceTest_KL(
+  boot_np_construct_joint
+)
+```
+
+```{r plot-difference-test-construct-joint, fig.width=8, fig.height=6}
+plot_KL_difference(
+  diff_result = diff_construct_joint,
+  sample_KL = boot_np_construct_joint$sample_KL,
+  order = "sample"
+)
+```
+
+In the difference test plot, nodes or constructs are compared pairwise in terms of their KL divergence values. Significant pairwise differences indicate that the projected importance of the two corresponding nodes or constructs can be statistically distinguished under the current bootstrap procedure. In this example, the results show that, at the node level, significant differences in KL divergence are observed across most node pairs; at the construct level, the KL divergence of depressive disorder and anxiety disorder also differed significantly.
+
+# Summary
+
+This reproducible example demonstrates how to apply BGGMNIRA to a depression--anxiety comorbidity network and how to evaluate projected importance at three levels.
+
+Using the original symptom data, we first estimated a regularized Gaussian graphical model for depressive and anxiety symptoms. We then applied node-level GGMNIRA from the joint-network perspective, node-level GGMNIRA from the construct-specific perspective, and construct-level GGMNIRA from the joint-network perspective. These three analyses address distinct questions about projected importance in bridge networks: which symptom matters most for the complete joint network, which source-construct symptom matters most for the target construct, and which construct matters most for the complete joint network.
+
+We further assessed the stability of KL divergence estimates using a case-dropping bootstrap procedure and examined pairwise differences using a nonparametric bootstrap difference test. Together, these analyses provide a reproducible workflow for applying BGGMNIRA and for evaluating the robustness and statistical distinguishability of its results.
+
+It should be emphasized that BGGMNIRA implements statistical simulations based on estimated network parameters. Therefore, its results should not be interpreted as direct evidence for the causal effects of real clinical interventions. Instead, they should be used as model-based evidence for projected importance and as a reference for future empirical and intervention research.
+
+# Session information
+
+For reproducibility, we report the R session information used to generate this document.
+
+```{r session-info}
+sessionInfo()
+```
