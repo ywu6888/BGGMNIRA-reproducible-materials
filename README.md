@@ -20,12 +20,12 @@ The materials provide a step by step R Markdown example showing how to apply BGG
 The tutorial includes the following steps:
 
 1. load the `GGMNIRA` R package and the built-in `DAdata` data set;
-2. estimate a regularized Gaussian graphical model for depression and anxiety symptoms;
+2. estimate a regularized Gaussian graphical model for depressive and anxiety symptoms;
 3. apply node-level GGMNIRA from the joint-network perspective;
 4. apply node-level GGMNIRA from the construct-specific perspective;
 5. apply construct-level GGMNIRA from the joint-network perspective;
 6. visualize the KL divergence results for all three levels;
-7. evaluate the stability of the KL divergence estimates using case-dropping bootstrap;
+7. evaluate the stability of the relative pattern of KL divergence across nodes using case-dropping bootstrap;
 8. conduct bootstrap difference tests for pairwise differences in KL divergence.
 
 ## Installation
@@ -54,13 +54,13 @@ To reproduce the analysis locally:
 In `GGM_NIRA()`, the `result_type` argument is used to select the analytical level:
 
 * `result_type = "node_joint"`  
-  Computes node-level projected importance in the complete bridge network.
+  Computes node-level projected importance in the complete network.
 
 * `result_type = "cross_marginal"`  
   Computes directional cross-construct projected importance. In this mode, `GGM_NIRA()` computes all directional cross-construct paths. A specific path, such as depression to anxiety, can be extracted later using `GGMNIRA_result()` by specifying `source_construct` and `target_construct`.
 
 * `result_type = "construct_joint"`  
-  Computes construct-level projected importance in the complete bridge network. The construct-level manipulation is normalized using a unit-norm constraint so that manipulation intensity is comparable across constructs with different numbers of nodes.
+  Computes construct-level projected importance in the complete network. The construct-level manipulation is normalized using a unit-norm constraint so that manipulation intensity is comparable across constructs with different numbers of nodes.
 
 ## Citation
 

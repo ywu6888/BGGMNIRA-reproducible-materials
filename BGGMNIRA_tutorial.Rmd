@@ -1,7 +1,7 @@
 ---
 title: "Bridge GGMNIRA Empirical Application"
 author: "Yiming Wu"
-date: "2026-06-30"
+date: "2026-09-29"
 output: 
   html_document:
     toc: true
@@ -39,7 +39,7 @@ Specifically, we will:
 4. apply node-level GGMNIRA from the construct-specific perspective;
 5. apply construct-level GGMNIRA from the joint-network perspective;
 6. visualize the KL divergence results for all three levels;
-7. evaluate the stability of the KL divergence estimates using case-dropping bootstrap;
+7. evaluate the stability of the relative pattern of KL divergence across nodes using case-dropping bootstrap;
 8. conduct bootstrap difference tests for pairwise differences in KL divergence.
 
 # Installation
@@ -86,7 +86,7 @@ DA_type <- c(rep("Depression", 9), rep("Anxiety", 7))
 
 Before applying BGGMNIRA, we first estimate a regularized Gaussian graphical model for the depression--anxiety symptom network.
 
-The network is estimated using the `estimateNetwork()` function from the `bootnet` package. We use the `EBICglasso` method and set `corMethod = "cor_auto"`, so that the appropriate correlation input is selected automatically. For ordinal data, this typically leads to the use of polychoric correlations.
+The network is estimated using the `estimateNetwork()` function from the `bootnet` package. We use the `EBICglasso` method and set `corMethod = "cor_auto"`, so that the appropriate correlation input is selected automatically. For these ordinal responses, `cor_auto` yields a polychoric correlation matrix. This analysis interprets the resulting network within a latent Gaussian threshold model, in which the observed categories arise from underlying continuous Gaussian variables. Applying BGGMNIRA to these data relies on the reasonableness of that assumption.
 
 ```{r estimate-network}
 DAnet <- bootnet::estimateNetwork(
@@ -170,7 +170,7 @@ node_joint_plot <- GGMNIRA_plot(
 print(node_joint_plot)
 ```
 
-In this plot, the x-axis represents the manipulated symptoms, and the y-axis represents the KL divergence between the post-manipulation distribution and the baseline distribution of the complete joint network.
+In this plot, the x-axis represents the manipulated symptoms, and the y-axis represents the KL divergence between the post-manipulation distribution and the baseline distribution of the complete joint network. An asterisk (*) indicates that, at the current manipulation intensity, manipulating the corresponding node produces an effective effect.
 
 # Node-level GGMNIRA from the construct-specific perspective
 
@@ -218,13 +218,13 @@ cross_marginal_plot <- GGMNIRA_plot(
 print(cross_marginal_plot)
 ```
 
-In this plot, the x-axis represents the manipulated depressive symptoms, and the y-axis represents the KL divergence between the post-manipulation marginal distribution and the baseline marginal distribution of anxiety.
+In this plot, the x-axis represents the manipulated depressive symptoms, and the y-axis represents the KL divergence between the post-manipulation marginal distribution and the baseline marginal distribution of anxiety. An asterisk (*) indicates that, at the current manipulation intensity, manipulating the corresponding node produces an effective effect.
 
 # Construct-level GGMNIRA from the joint-network perspective
 
 The third analysis implements simulated manipulation at the construct level. Instead of manipulating one node at a time, the algorithm applies manipulations of equal direction simultaneously to all nodes belonging to the same construct. It then iterates over each construct and computes the KL divergence between the joint distribution of the complete manipulated network and the baseline distribution.
 
-This analysis answers the following question: which construct is expected to produce the greatest overall change in the complete bridge network after being manipulated?
+This analysis answers the following question: which construct is projected to produce the greatest overall change in the complete bridge network after being manipulated?
 
 Because the number of nodes may differ across constructs, BGGMNIRA imposes a unit-norm constraint on the manipulation vector. This ensures that the effective manipulation intensity is comparable across constructs.
 
@@ -249,7 +249,7 @@ construct_joint_result <- GGMNIRA_result(
 construct_joint_result
 ```
 
-Results show that, at the construct level, anxiety disorder showed greater projected importance than depressive disorder in the depression-anxiety comorbidity network. That is, intervening on anxiety is projected to produce a greater intervention effect.
+Results show that, at the construct level, anxiety showed greater projected importance than depression in the depression-anxiety comorbidity network. That is, manipulating on anxiety is projected to produce a greater manipulation effect.
 
 # Visualize construct-joint results
 
@@ -264,11 +264,11 @@ construct_joint_plot <- GGMNIRA_plot(
 print(construct_joint_plot)
 ```
 
-In this plot, the x-axis represents the manipulated constructs, and the y-axis represents the KL divergence between the post-manipulation distribution and the baseline distribution of the complete joint network.
+In this plot, the x-axis represents the manipulated constructs, and the y-axis represents the KL divergence between the manipulated distribution and the baseline distribution of the complete joint network. An asterisk (*) indicates that, at the current manipulation intensity, manipulating the corresponding construct produces an effective effect.
 
 # Stability assessment via case-dropping bootstrap
 
-After computing the KL divergence values, it is important to evaluate whether these estimates are stable.
+After computing the KL divergence values, it is important to evaluate the stability of the relative pattern of KL divergence across nodes.
 
 BGGMNIRA provides the `bootnet_KL()` function to conduct a case-dropping bootstrap analysis. This procedure repeatedly estimates KL divergence values after dropping different proportions of cases, and then evaluates how strongly the bootstrap KL divergence vector correlates with the original full-sample vector.
 
@@ -354,13 +354,13 @@ plot_KL(
 )
 ```
 
-The CS coefficient quantifies the maximum proportion of cases that can be dropped while retaining a sufficiently high correlation with the original KL divergence vector. If the CS coefficient is sufficiently large, the KL divergence estimates can be interpreted as having an acceptable degree of stability.
+The CS coefficient quantifies the maximum proportion of cases that can be dropped while retaining a sufficiently high correlation with the original KL divergence vector. If the CS coefficient is sufficiently large, the relative pattern of KL divergence across nodes can be interpreted as having an acceptable degree of stability.
 
-In this example, the CS coefficients for KL divergence are 0.75 across all three levels of BGGMNIRA, exceeding the preliminary threshold of 0.40 identified in our simulation study. This indicates that the KL divergence estimates show acceptable stability across the three analytical levels.
+In this example, the CS coefficients for KL divergence are 0.75 across all three levels of BGGMNIRA, exceeding the preliminary threshold of 0.40 identified in our simulation study. This indicates that the relative pattern of KL divergence across nodes show acceptable stability across the three analytical levels.
 
 # Bootstrap difference test
 
-In addition to evaluating stability, we may also want to test whether the KL divergence values of different nodes or constructs are statistically distinguishable.
+In addition to evaluating stability, we may also want to test whether the KL divergence values of different nodes are statistically distinguishable.
 
 For this purpose, BGGMNIRA provides the `bootnet_KL_nonparametric()` function for nonparametric bootstrap sampling and the `differenceTest_KL()` function for constructing confidence intervals for pairwise KL divergence differences.
 
@@ -452,17 +452,17 @@ plot_KL_difference(
 )
 ```
 
-In the difference test plot, nodes or constructs are compared pairwise in terms of their KL divergence values. Significant pairwise differences indicate that the projected importance of the two corresponding nodes or constructs can be statistically distinguished under the current bootstrap procedure. In this example, the results show that, at the node level, significant differences in KL divergence are observed across most node pairs; at the construct level, the KL divergence of depressive disorder and anxiety disorder also differed significantly.
+In the difference test plot, nodes are compared pairwise in terms of their KL divergence values. Significant pairwise differences indicate that the projected importance of the two corresponding nodes can be statistically distinguished under the current bootstrap procedure. In this example, the results show that, at the node level, significant differences in KL divergence are observed across most node pairs; at the construct level, the KL divergence of depression and anxiety also differed significantly.
 
 # Summary
 
 This reproducible example demonstrates how to apply BGGMNIRA to a depression--anxiety comorbidity network and how to evaluate projected importance at three levels.
 
-Using the original symptom data, we first estimated a regularized Gaussian graphical model for depressive and anxiety symptoms. We then applied node-level GGMNIRA from the joint-network perspective, node-level GGMNIRA from the construct-specific perspective, and construct-level GGMNIRA from the joint-network perspective. These three analyses address distinct questions about projected importance in bridge networks: which symptom matters most for the complete joint network, which source-construct symptom matters most for the target construct, and which construct matters most for the complete joint network.
+Using the original symptom data, we first estimated a regularized Gaussian graphical model for depressive and anxiety symptoms. We then applied node-level GGMNIRA from the joint-network perspective, node-level GGMNIRA from the construct-specific perspective, and construct-level GGMNIRA from the joint-network perspective. These three analyses address distinct questions about projected importance in bridge network: which symptom matters most for the complete joint network, which source-construct symptom matters most for the target construct, and which construct matters most for the complete joint network.
 
-We further assessed the stability of KL divergence estimates using a case-dropping bootstrap procedure and examined pairwise differences using a nonparametric bootstrap difference test. Together, these analyses provide a reproducible workflow for applying BGGMNIRA and for evaluating the robustness and statistical distinguishability of its results.
+We further evaluate the stability of the relative pattern of KL divergence across nodes using a case-dropping bootstrap procedure and examined pairwise differences using a nonparametric bootstrap difference test. Together, these analyses provide a reproducible workflow for applying BGGMNIRA and for evaluating the robustness and statistical distinguishability of its results.
 
-It should be emphasized that BGGMNIRA implements statistical simulations based on estimated network parameters. Therefore, its results should not be interpreted as direct evidence for the causal effects of real clinical interventions. Instead, they should be used as model-based evidence for projected importance and as a reference for future empirical and intervention research.
+It should be emphasized that BGGMNIRA implements statistical simulations based on estimated network parameters. Therefore, its results should not be interpreted as direct evidence for the causal effects of real-world manipulation. Instead, they should be used as model-based evidence for projected importance and may be as a reference for future empirical research.
 
 # Session information
 
